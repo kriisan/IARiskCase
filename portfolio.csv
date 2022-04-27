@@ -1,0 +1,3 @@
+identifier,identifierType,productType,baseCurrency,positionValueCAD
+XIU,ticker,equity,CAD,1e9
+SPY,ticker,equity,USD,1e9
