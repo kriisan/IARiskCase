@@ -1,0 +1,30 @@
+Q2. Rationalize the results from the risk analysis of the portfolio
+
+Below is the output from the analysis run on a portfolio with $1b CAD XIU and $1b USD SPY.
+Average expected return:  13.18 %
+Std Dev of forecasted returns 0.1362
+1% CVaR:  -21.75 %
+%1 ETL based on largest single day loss per path -10.99 %
+%1 ETL based on largest overall decrease from initial -33.92 %
+
+The average returns give a good sense for if the numbers are in the right ballpark. The 5yr return of XIU is 10.89% and
+SPY is 15.83% as of March 31st 2022. We can see an average of the two returns provide a result of 13.36% showing the
+results from the model are in the right ballpark.
+
+Having calculated the 1% ETL (CVaR) of total return to be -21.75%, expected loss of the worst 1% of return is -21.75%
+over this coming year. The std dev of the forecasted returns was determined to be 0.1362, given such a large std dev
+compared to the average return I want to hypothesize the high volatility is a driving factor in the high tail risk. This
+high volatility can be explained by looking at that macro economic climate of the time period of the historic data:
+early 2018 US markets saw increase due to corporate tax changes implemented by Trump administrations, 2020 Corona drove
+markets to down, 2020-2021 near zero interest rates and quantitative easing, and cyclical open and closing of lockdowns.
+Given this perspective the high tail risk reflects the large amount of volatility in the market.
+
+The calculation done on the 1% ETL of largest overall differences from initial investments shows that there is very high
+drawdown, with 1% worst results being 33.92%. The number itself can be justified looking at volatility as we did for
+CVaR.  This risk metric provides insights into the risk the Teachers’ may face with being underfunded if assets values
+fall too quickly over period.
+
+Given the data set used to forecast 2022 yearly return the results is inline with my expectations and understanding.
+Given the timeframe over which the historical data was gathered are very different from the current increasing interest
+rate and quantitative tightening, I do not think the results will be good indicators of the results we could expect to
+see in 2022.
