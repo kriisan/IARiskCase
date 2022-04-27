@@ -6,24 +6,26 @@ import datetime as dt
 import random
 import time
 import matplotlib.pyplot as plt
-# assumption
+# assumptions
 # 1. returns for each day is independent of return from previous day
-#       since there are days when US market is open and Canada isn't and vice versa to simply program will only use
-#       dates where returns can be calculated for both markets. Future improvement would be use linear interpolation of
-#       asset price over missing date then calculate return to fill gaps in data.
+# since there are days when US market is open and Canada isn't and vice versa to simplify program will only use
+# dates where returns can be calculated for both markets. Future improvement would be use linear interpolation of
+# asset price over missing date then calculate return to fill gaps in data.
+# 2. returns for first day aren't present since close price is being so the first calculated return in day 2. Future
+# improvement would be to updated script to seek out first close price preceding the start date used.
 
 #variables
 datefromat = '%Y-%m-%d'
 startDateData = dt.date(2017,1,1).strftime(datefromat)      #start date of historical data
 endDateData = dt.date(2021,12,31).strftime(datefromat)      #End date of historical data
 forecastStartDate = dt.date(2022,3,31).strftime(datefromat)     #start date for forecase
-iteration = 5000        #Number of iterations (trials)
+iteration = 5        #Number of iterations (trials)
 numprd = 4              #Number of periods stich together
-szprd = 62              #size of periods, since 250 buisness days in a year approx 250/4=62.5
+szprd = 2              #size of periods, since 250 buisness days in a year approx 250/4=62.5
 identiferCCy = []
 
 # Function to load portfolio position and return dataframe to be used in risk analysis
-def load_portfolio():
+def load_portfolio(file):
     # identifier -> how product is referenced
     # identifierType -> example ticker/ISIN/CUSIP
     # productType -> equity/bond/swap
@@ -32,7 +34,7 @@ def load_portfolio():
     # use current FX rate to convert. CAD simplifies example to maintain a starting allocation of 50% for both products)
     # build global array that has ticker and ccy pair to be able to apply fx correctly
     global identiferCCy
-    df = pd.read_csv('portfolio.csv')
+    df = pd.read_csv(file)
     identiferCCy = df[['identifier','baseCurrency']].to_numpy()
     return df
 
@@ -44,9 +46,10 @@ def fx_rate(pair, startDate, endDate):
 
 # build dataframe for each type of risk factor with daily returns
 # input start and end of date for historical data set and dataframe with only equities, returns a dataframe with the
-# daily returns for each equity
-def equity_daily_return(equity, startDate, endDate):
+# daily returns for each equity apart from first date
+def equity_daily_return(port, startDate, endDate):
     equityReturns = []
+    equity = port.loc[portfolio['productType'] == "equity"]
     # yahoo finance to get price on date T the end date needs to be date T+1
     endDate = (dt.datetime.strptime(endDate, datefromat) + dt.timedelta(days=1)).strftime(datefromat)
     for i in range(0, equity.shape[0]):
@@ -95,61 +98,66 @@ def fx_daily_change(startDate, endDate):
     fxDailyChange = pd.DataFrame({'cadusd': daily_return}, index=tempFX.index).iloc[1: , :]
     return fxDailyChange
 
-# funtion that will return initial price in data frame given portfolio input
-def intial_price (port, date):
+# funtion that will return initial price in dataframe given portfolio input
+def initial_price (port, date):
+    # isolate the equities in portfolio
     equities = port.loc[portfolio['productType'] == "equity"]
-    intialPrice = []
+    initialPrice = []
     # yahoo finance to get price on date T the end date needs to be date T+1
     dateP1 = (dt.datetime.strptime(date, datefromat) + dt.timedelta(days=1)).strftime(datefromat)
+    # loop through equites and uses base currency to determine whether to add '.to' for canadian markets
     for i in range(0, equities.shape[0]):
         if equities[i:i + 1]['baseCurrency'].values == 'CAD':
             price = yf.Ticker(equities[i:i + 1]['identifier'].values[0] + '.to').history(start=date,end=dateP1)["Close"]
         elif equities[i:i + 1]['baseCurrency'].values == 'USD':
             price = yf.Ticker(equities[i:i + 1]['identifier'].values[0]).history(start=date,end=dateP1)["Close"]
         temp = pd.DataFrame({equities[i:i + 1]['identifier'].values[0]: price.values})
-        if len(intialPrice) == 0:
-            intialPrice = temp
+        # Use inner join due to Canada and US having different holidays want to ensure a full populated data set
+        if len(initialPrice) == 0:
+            initialPrice = temp
         else:
-            intialPrice = pd.concat([intialPrice, temp], axis=1, join='inner')
+            initialPrice = pd.concat([initialPrice, temp], axis=1, join='inner')
 
-    return intialPrice
+    return initialPrice
 
-def intial_fx (date):
+def initial_fx (date):
 
     intailFX = []
-    cadusdIntial = np.multiply(np.reciprocal(fx_rate('EURUSD=X', date, date)),
+    # calculate CAD/USD rate using ((EUR/CAD)^-1)*(EUR/USD)
+    cadusdinitial = np.multiply(np.reciprocal(fx_rate('EURUSD=X', date, date)),
                                fx_rate('EURCAD=X', date, date))
-    temp = pd.DataFrame({'cadusd': cadusdIntial})
+    temp = pd.DataFrame({'cadusd': cadusdinitial})
+    # setup incase more currency pairs need to be added
     if len(intailFX) == 0:
-        intialFX = temp
+        initialFX = temp
     else:
-        intialFX = pd.concat([intailFX, temp], axis=1, join='inner')
-    return intialFX
+        initialFX = pd.concat([intailFX, temp], axis=1, join='inner')
+    return initialFX
 
 # funtion that will accept daily return and initial values of risk factors to return the forecasted results using the
 # following method
 # select m number of random sets of n returns and stitch returns together and return final values of factors
-def forecast_risk_factor (intialValueEquity, dailyReturnEquity, intialValueFX, dailyReturnFX, m, n):
+def forecast_risk_factor(initialValueEquity, dailyReturnEquity, initialValueFX, dailyReturnFX, m, n):
+    # returns for FX and assets kept seperate
     forecast = np.zeros((m*n + 1, dailyReturnEquity.shape[1]))
     forecastFX = np.zeros((m*n + 1, dailyReturnFX.shape[1]))
-    forecast[0] = intialValueEquity.values
-    forecastFX[0] = intialValueFX.values
+    forecast[0] = initialValueEquity.values
+    forecastFX[0] = initialValueFX.values
     for i in range(0,m):
+        # randomly select value where set + start location won't be larger than array
         start = random.randint(0, dailyReturnEquity.shape[0] - n)
         offset = np.where(forecast == 0)[0][0]-1
+        # apply return to value of previous day to calculate next day
         for j in range(start, start+n):
             forecast[j+1-start+offset] = forecast[j-start+offset]*dailyReturnEquity.values[j]
             forecastFX[j + 1 - start + offset] = forecastFX[j - start + offset] * dailyReturnFX.values[j]
-
     return forecast.transpose(), forecastFX.transpose()
 
 
 
-portfolio = load_portfolio()
-equities = portfolio.loc[portfolio['productType'] == "equity"]
-equityReturns = equity_daily_return(equities,startDateData,endDateData)
-fxDailyChange = fx_daily_change(startDateData, endDateData)
-# Add check for if factors not empty then concat
+portfolio = load_portfolio('portfolio.csv')        #load portfolio from csv
+equityReturns = equity_daily_return(portfolio,startDateData,endDateData)        # generate equity returns
+fxDailyChange = fx_daily_change(startDateData, endDateData)         # generate fx daily returns
 
 # some FX data points missing from yahoo finance, for example 2017-11-16, using inner join to ensure data avaliable for
 # all dates used in forecast
@@ -157,23 +165,20 @@ riskFactorInnerJoin = pd.concat([equityReturns, fxDailyChange], axis=1, join='in
 equityReturns = riskFactorInnerJoin[equityReturns.columns]
 fxDailyChange = riskFactorInnerJoin[fxDailyChange.columns]
 
+#initial price of risk factors
+initialPrice = initial_price(portfolio, forecastStartDate)
+initialFX = initial_fx(forecastStartDate)
 
-#Intial price of risk factors
-intialPrice = intial_price(portfolio, forecastStartDate)
-intialFX = intial_fx(forecastStartDate)
-
-
-intialPos = intialPrice[portfolio['identifier'].values]
-
-for i in intialPos.columns:
+initialPos = initialPrice[portfolio['identifier'].values]   # calculated intial stocks help better visually stock price
+for i in initialPos.columns:
     # attempt to calculate position only if header name exists in identifier ccy pair table, this ensures to not do
     # calculation on fx rate
     try:
         if identiferCCy[np.argwhere(identiferCCy == i)[0][0]][1] == 'USD':
-            intialPos.at[0,i] *= intialFX.at[0,'cadusd']
+            initialPos.at[0,i] *= initialFX.at[0,'cadusd']
         # get index of ticker in portfolio
         k = portfolio[portfolio['identifier'] == i].index.values[0]
-        intialPos.at[0,i] = portfolio.at[k,'positionValueCAD']/intialPos.at[0,i]
+        initialPos.at[0,i] = portfolio.at[k,'positionValueCAD']/initialPos.at[0,i]
 
     except:
         pass
@@ -182,36 +187,42 @@ for i in intialPos.columns:
 # add checks to ensure riskfactors exist for each initial price
 
 # forcast results
-numAssets = equityReturns.shape[1]
-forecasts = np.zeros((iteration*numAssets,numprd*szprd+1))
-forecastsFX = np.zeros((iteration*fxDailyChange.shape[1],numprd*szprd+1))
+numAssets = equityReturns.shape[1]      # total number of assets in portfolio
+forecasts = np.zeros((iteration*numAssets,numprd*szprd+1))      # forecast price change for assets
+forecastsFX = np.zeros((iteration*fxDailyChange.shape[1],numprd*szprd+1))   # forecast price change for FX
 for i in range(0, iteration):
-    forecasts[i*numAssets:i*numAssets+2], forecastsFX[i:i+1] = forecast_risk_factor(intialPrice, equityReturns, intialFX, fxDailyChange, numprd, szprd)
+    forecasts[i*numAssets:i*numAssets+numAssets], forecastsFX[i:i+1] = forecast_risk_factor(initialPrice, equityReturns, initialFX, fxDailyChange, numprd, szprd)
 
-portfolioValue = np.zeros((iteration,numprd*szprd+1))
+portfolioValue = np.zeros((iteration,numprd*szprd+1))       # determine value of portfolio over time
 for i in range(0,iteration):
-    forecastsTemp = forecasts[i*numAssets:i*numAssets+2]
+    forecastsTemp = forecasts[i*numAssets:i*numAssets+numAssets]
     # apply fx to USD stocks using the shape of portfolio to determine which columns refer to US stocks
     forecastsTemp[(portfolio['baseCurrency'].values == 'USD')] = forecastsTemp[(portfolio['baseCurrency'].values == 'USD')]*forecastsFX[i]
-    tempIntialVal = (intialPos.values).flatten()
+    tempinitialVal = (initialPos.values).flatten()
     for j in range(0,numprd*szprd+1):
+        # add value of each asset * intial position to total portfolio value
         for k in range(0, numAssets):
-            portfolioValue[i][j] += forecastsTemp[k][j]*tempIntialVal[k]
+            portfolioValue[i][j] += forecastsTemp[k][j]*tempinitialVal[k]
 
-portfolioReturns = np.zeros((iteration,numprd*szprd))
-portfolioTotalReturn = np.zeros((iteration,1))
+portfolioReturns = np.zeros((iteration,numprd*szprd))       # daily portfolio returns
+portfolioReturnOverTime = np.zeros((iteration,numprd*szprd))    # compare return for each timeperiod compared to initial
 for i in range(0,iteration):
-    portfolioTotalReturn[i] = portfolioValue[i][-1]/portfolioValue[i][0] - 1
     for j in range(0, numprd * szprd):
         portfolioReturns[i][j] = portfolioValue[i][j+1]/portfolioValue[i][j] - 1
+        portfolioReturnOverTime[i][j] = portfolioValue[i][j+1]/portfolioValue[i][0] - 1
 
-print('Average expected return: ', np.average(portfolioTotalReturn))
-#
+
+# Calculate the average return of portfolio
+print('Average expected return: ', round(np.average(portfolioReturnOverTime[:,-1]),4)*100,'%')
 # Calculate Expected 1% CVaR (Expected shortfall)
 # np.sort(portfolioTotalReturn)
-print('1% CVar: ', np.average(np.percentile(portfolioTotalReturn,1)))
+print('1% CVar: ', round(np.average(np.percentile(portfolioTotalReturn,1)),4)*100,'%')
 
-np.sort(portfolioTotalReturn)
-print('1% CVar: ', np.average(np.percentile(portfolioTotalReturn,1)))
+# alternative tail risk, 1% tail risk based maxmium losses on indiviudal paths
+print('%1 ETL based on largest single day loss per path ', round(np.average(np.percentile(portfolioReturns.min(axis=1),1)),4)*100,'%')
 
+# alternative drawdown tail risk, typically based on largest peak to trough but here will be looking at largest decrease
+# from initial capital. 1% tail risk based maximum losses on individual paths
+print('%1 ETL based on largest over decrease from initial ', round(np.average(np.percentile(portfolioReturnOverTime.min(axis=1),1)),4)*100,'%')
 
+print(portfolio)
